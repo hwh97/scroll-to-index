@@ -58,7 +58,6 @@ abstract class AutoScrollController implements ScrollController {
   /// used to choose which direction you are using.
   /// e.g. axis == Axis.horizontal ? (r) => r.left : (r) => r.top
   AxisValueGetter get beginGetter;
-
   AxisValueGetter get endGetter;
 
   /// detect if it's in scrolling (scrolling is a async process)
@@ -159,19 +158,13 @@ mixin AutoScrollControllerMixin on ScrollController
     implements AutoScrollController {
   @override
   final Map<int, AutoScrollTagState> tagMap = <int, AutoScrollTagState>{};
-
   double? get suggestedRowHeight;
-
   bool get clampToMaxScrollExtent;
-
   ViewportBoundaryGetter get viewportBoundaryGetter;
-
   AxisValueGetter get beginGetter;
-
   AxisValueGetter get endGetter;
 
   bool __isAutoScrolling = false;
-
   set _isAutoScrolling(bool isAutoScrolling) {
     __isAutoScrolling = isAutoScrolling;
     if (!isAutoScrolling &&
@@ -183,7 +176,6 @@ mixin AutoScrollControllerMixin on ScrollController
   bool get isAutoScrolling => __isAutoScrolling;
 
   ScrollController? _parentController;
-
   @override
   set parentController(ScrollController parentController) {
     if (_parentController == parentController) return;
@@ -384,7 +376,6 @@ mixin AutoScrollControllerMixin on ScrollController
     assert(targetIndex != currentNearestIndex);
     currentNearestIndex = currentNearestIndex ?? 0; //null as none of state
 
-    final alignment = targetIndex > currentNearestIndex ? 1.0 : 0.0;
     double? absoluteOffsetToViewport;
 
     if (useSuggested && suggestedRowHeight != null) {
@@ -394,10 +385,30 @@ mixin AutoScrollControllerMixin on ScrollController
       absoluteOffsetToViewport = math.max(
           offsetToLastState.offset + indexDiff * suggestedRowHeight!, 0);
     } else {
-      final offsetToLastState =
-          _offsetToRevealInViewport(currentNearestIndex, alignment);
+      final revealedOffset0 = _offsetToRevealInViewport(currentNearestIndex, 0);
+      final revealedOffset1 = _offsetToRevealInViewport(currentNearestIndex, 1);
 
-      absoluteOffsetToViewport = offsetToLastState?.offset;
+      double? offsetToLastState;
+      if (currentNearestIndex < targetIndex) {
+        // the current nearest index is less than the target
+        // we should scroll to the end of it in this round to
+        // make it as close to the target as possible.
+        offsetToLastState = revealedOffset1?.offset ?? revealedOffset0?.offset;
+      } else {
+        // make it scroll to as short as possible
+        // since it's the farest possible one we can scroll to
+        offsetToLastState = revealedOffset0 == null
+            ? revealedOffset1 == null
+                ? null
+                : revealedOffset1.offset
+            : revealedOffset1 == null
+                ? revealedOffset0.offset
+                : math.min(revealedOffset0.offset, revealedOffset1.offset);
+      }
+
+      if (offsetToLastState == double.maxFinite) offsetToLastState = null;
+
+      absoluteOffsetToViewport = offsetToLastState;
       if (absoluteOffsetToViewport == null)
         absoluteOffsetToViewport = defaultScrollDistanceOffset;
     }
@@ -409,11 +420,18 @@ mixin AutoScrollControllerMixin on ScrollController
     final list = tagMap.keys;
     if (list.isEmpty) return null;
 
-    final sorted = list.toList()
-      ..sort((int first, int second) => first.compareTo(second));
-    final min = sorted.first;
-    final max = sorted.last;
-    return (index - min).abs() < (index - max).abs() ? min : max;
+    final iter = list.iterator..moveNext();
+    var closestIndex = iter.current;
+    var closestDiff = (index - iter.current).abs();
+    while (iter.moveNext()) {
+      final diff = (index - iter.current).abs();
+      if (diff < closestDiff) {
+        closestIndex = iter.current;
+        closestDiff = diff;
+      }
+    }
+
+    return closestIndex;
   }
 
   /// bring the state node (already created but all of it may not be fully in the viewport) into viewport
